@@ -27,6 +27,9 @@ import pygame
 import dmlab2d
 from dmlab2d import runfiles_helper
 
+import os
+from os import makedirs
+from os.path import join
 
 def _make_int32_distribution(random, minimum, maximum):
 
@@ -74,29 +77,9 @@ class PyGameRandomAgent(object):
                                               spec.maximum)))
       else:
         print("Warning '{}' is not supported".format(spec))
-    obs_spec = observation_spec[observation_name]
-    self._setup_py_game(obs_spec.shape)
-
-  def _setup_py_game(self, shape):
-    pygame.init()
-    pygame.display.set_caption('DM Lab2d')
-    self._game_display = pygame.display.set_mode(
-        (int(shape[1] * self._scale), int(shape[0] * self._scale)))
-
-  def _render_observation(self, observation):
-    obs = np.transpose(observation, (1, 0, 2))
-    surface = pygame.surfarray.make_surface(obs)
-    rect = surface.get_rect()
-    surf = pygame.transform.scale(
-        surface, (int(rect[2] * self._scale), int(rect[3] * self._scale)))
-
-    self._game_display.blit(surf, dest=(0, 0))
-    pygame.display.update()
 
   def step(self, timestep):
     """Renders timestep and returns random actions according to spec."""
-    self._render_observation(timestep.observation[self._observation_name])
-    display_score_dirty = False
     if timestep.reward is not None:
       if timestep.reward != 0:
         self._scores[-1] += timestep.reward
@@ -104,9 +87,6 @@ class PyGameRandomAgent(object):
     else:
       self._scores.append(0)
       display_score_dirty = True
-
-    if display_score_dirty:
-      pygame.display.set_caption('%d score' % self._scores[-1])
     return {name: gen() for name, gen in self._actions}
 
   def print_stats(self):
@@ -122,6 +102,7 @@ def _create_environment(args):
   Returns:
     dmlab2d.Environment with one observation.
   """
+  # print("created environment")
   args.settings['levelName'] = args.level_name
   lab2d = dmlab2d.Lab2d(runfiles_helper.find(), args.settings)
   return dmlab2d.Environment(lab2d, [args.observation], args.env_seed)
@@ -133,25 +114,59 @@ def _run(args):
   Args:
     args: See `main()` for description of args.
   """
+  # print("running")
   env = _create_environment(args)
   agent = PyGameRandomAgent(env.action_spec(), args.observation,
                             env.observation_spec(), args.agent_seed, args.scale)
-  for _ in range(args.num_episodes):
+  for i in range(args.num_episodes):
     timestep = env.reset()
     # Run single episode.
-    while True:
-      # Query PyGame for early termination.
-      if any(event.type == pygame.QUIT for event in pygame.event.get()):
-        print('Exit early last score may be truncated:')
-        agent.print_stats()
-        return
+    s_rollout = []
+    r_rollout = []
+    d_rollout = []
+    a_rollout = []
+    t_rollout = []
+
+    enough_data = False
+    while not enough_data:
       action = agent.step(timestep)
       timestep = env.step(action)
+      s_rollout += [timestep.observation['WORLD.RGB']] # observation
+      r_rollout += [timestep.reward] # reward
+      d_rollout += [timestep.discount] # discount
+      a_rollout += [action["MOVE"]] # actions
+      t_rollout += [timestep.step_type.value] # terminals
+      
       if timestep.last():
         # Observe last frame of episode.
         agent.step(timestep)
-        break
+        a_rollout += [action["MOVE"]]
 
+        if len(a_rollout) <= 1000:
+          # print("not enough data")
+          timestep = env.reset()
+          # Run single episode.
+          s_rollout = []
+          r_rollout = []
+          d_rollout = []
+          a_rollout = []
+          t_rollout = []
+        else:
+          enough_data = True
+          print("> End of rollout {}, {} frames...".format(i, args.num_episodes))
+          # print(s_rollout, r_rollout, d_rollout, a_rollout, t_rollout)
+          makedirs("/Users/qingshi/docs/Projects/sp24/lab2d/chase_eat_may8/thread_" + str(args.env_seed), exist_ok=True)
+          np.savez(join("/Users/qingshi/docs/Projects/sp24/lab2d/chase_eat_may8/thread_{}".format(args.env_seed), 'rollout_{}'.format(i)),
+                  observations=np.array(s_rollout),
+                  rewards=np.array(r_rollout),
+                  discounts=np.array(d_rollout),
+                  actions=np.array(a_rollout),
+                  terminals=np.array(t_rollout))
+          file_path = os.path.abspath(join("/Users/qingshi/docs/Projects/sp24/lab2d/chase_eat_may8/thread_" + str(args.env_seed), 'rollout_{}.npz'.format(i)))
+          print("File will be saved to:", file_path)
+          break
+  
+  print("All episodes completed, report per episode.")
   # All episodes completed, report per episode.
   agent.print_stats()
 

@@ -3,3 +3,5 @@
 # Ignore generated python artifacts
 *.pyc
 copts/__pycache__/
+*.npz
+.DS_Store

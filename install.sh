@@ -77,8 +77,13 @@ function install_dmlab2d() {
       )
       ;;
     *)
-      echo "ERROR: no supported config for ${platform}..." >&2
-      exit 1
+      local -r EXTRA_CONFIG=(
+          --config=libc++
+          --config=macos_arm64
+          --repo_env=PY_PLATFORM_OVERRIDE=macosx_1_0_arm64
+      )
+      # echo "ERROR: no supported config for ${platform}..." >&2
+      # exit 1
       ;;
   esac
   C=clang CXX=clang++ bazel --bazelrc=.bazelrc build \
